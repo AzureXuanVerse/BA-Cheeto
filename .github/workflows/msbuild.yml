@@ -7,7 +7,7 @@ on:
     branches: [ "master" ]
 
 env:
-  SOLUTION_FILE_PATH: BA-Cheeto.sln  # 移除开头的./
+  SOLUTION_FILE_PATH: BA-Cheeto.sln
   BUILD_CONFIGURATION: Release
   PLATFORM: x64
   TARGET_DLL: Cunny.dll
@@ -17,10 +17,11 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
@@ -34,24 +35,37 @@ jobs:
 
       - name: Build solution
         run: |
+          # 使用GitHub Actions提供的环境变量
+          $outDir = "$env:GITHUB_WORKSPACE\bin\"
+          Write-Output "Output directory: $outDir"
+          
           msbuild "${{ env.SOLUTION_FILE_PATH }}" `
           /p:Configuration=${{ env.BUILD_CONFIGURATION}} `
           /p:Platform=${{ env.PLATFORM}} `
-          /p:OutDir=$(System.DefaultWorkingDirectory)\bin\ `
-          /p:GenerateProjectSpecificOutputFolder=false
+          /p:OutDir="$outDir" `
+          /p:GenerateProjectSpecificOutputFolder=false `
+          /verbosity:minimal
 
       - name: Verify build output
         run: |
-          $dllPath = Get-ChildItem -Path .\bin -Recurse -Filter "${{ env.TARGET_DLL }}" | Select-Object -First 1
-          if (-not $dllPath) {
-              Write-Output "##[error]DLL not found! Directory contents:"
-              tree /f .\bin || dir .\bin /s
+          $searchPath = "$env:GITHUB_WORKSPACE\bin"
+          Write-Output "Searching in: $searchPath"
+          
+          $dllFiles = Get-ChildItem -Path $searchPath -Recurse -Filter "${{ env.TARGET_DLL }}"
+          
+          if (-not $dllFiles) {
+              Write-Output "##[error]Target DLL not found!"
+              Write-Output "##[group]Directory structure"
+              tree /f $searchPath || dir $searchPath /s
+              Write-Output "##[endgroup]"
               exit 1
           }
-          Write-Output "Found DLL at: $($dllPath.FullName)"
-          Write-Output "##[group]DLL Info"
-          [System.Reflection.AssemblyName]::GetAssemblyName($dllPath.FullName)
-          Write-Output "##[endgroup]"
+          
+          foreach ($dll in $dllFiles) {
+              Write-Output "##[group]Found DLL: $($dll.FullName)"
+              [System.Reflection.AssemblyName]::GetAssemblyName($dll.FullName)
+              Write-Output "##[endgroup]"
+          }
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
