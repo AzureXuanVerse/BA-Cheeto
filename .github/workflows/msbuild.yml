@@ -12,29 +12,27 @@ env:
   PLATFORM: x64
   TARGET_DLL: Cunny.dll
 
-permissions:
-  contents: read
-
 jobs:
   build:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v4
         with:
           submodules: recursive
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
-      - name: Build
-        run: |
-          msbuild ${{ env.SOLUTION_FILE_PATH }} /p:Configuration=${{ env.BUILD_CONFIGURATION }} /p:Platform=${{ env.PLATFORM }} /verbosity:minimal /nologo
+      - name: Restore NuGet packages
+        run: msbuild ${{ env.SOLUTION_FILE_PATH }} /t:Restore /p:Configuration=${{ env.BUILD_CONFIGURATION }} /p:Platform=${{ env.PLATFORM }}
 
-      - name: Upload All Build Artifact
-        uses: actions/upload-artifact@v4.6.2
+      - name: Build
+        run: msbuild ${{ env.SOLUTION_FILE_PATH }} /p:Configuration=${{ env.BUILD_CONFIGURATION }} /p:Platform=${{ env.PLATFORM }} /p:OutputPath=./bin/ /verbosity:minimal
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
         with:
           name: build-artifact
-          path: |
-            ./bin/${{ env.BUILD_CONFIGURATION}}-${{ env.PLATFORM }}/${{ env.TARGET_DLL }}
+          path: ./bin/${{ env.TARGET_DLL }}
           if-no-files-found: error
