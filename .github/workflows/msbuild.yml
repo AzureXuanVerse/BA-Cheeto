@@ -35,9 +35,8 @@ jobs:
 
       - name: Build solution
         run: |
-          # 使用GitHub Actions提供的环境变量
           $outDir = "$env:GITHUB_WORKSPACE\bin\"
-          Write-Output "Output directory: $outDir"
+          if (!(Test-Path $outDir)) { New-Item -ItemType Directory -Path $outDir | Out-Null }
           
           msbuild "${{ env.SOLUTION_FILE_PATH }}" `
           /p:Configuration=${{ env.BUILD_CONFIGURATION}} `
@@ -49,8 +48,6 @@ jobs:
       - name: Verify build output
         run: |
           $searchPath = "$env:GITHUB_WORKSPACE\bin"
-          Write-Output "Searching in: $searchPath"
-          
           $dllFiles = Get-ChildItem -Path $searchPath -Recurse -Filter "${{ env.TARGET_DLL }}"
           
           if (-not $dllFiles) {
@@ -63,7 +60,8 @@ jobs:
           
           foreach ($dll in $dllFiles) {
               Write-Output "##[group]Found DLL: $($dll.FullName)"
-              [System.Reflection.AssemblyName]::GetAssemblyName($dll.FullName)
+              Write-Output "File size: $($dll.Length/1KB) KB"
+              Write-Output "Last modified: $($dll.LastWriteTime)"
               Write-Output "##[endgroup]"
           }
 
