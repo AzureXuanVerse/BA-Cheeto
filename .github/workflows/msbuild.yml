@@ -1,4 +1,4 @@
-name: MSBuild CI/CD Pipeline
+name: MSBuild Pipeline
 
 on:
   push:
@@ -7,7 +7,7 @@ on:
     branches: [ "master" ]
 
 env:
-  SOLUTION_FILE_PATH: ./BA-Cheeto.sln
+  SOLUTION_FILE_PATH: BA-Cheeto.sln  # 移除开头的./
   BUILD_CONFIGURATION: Release
   PLATFORM: x64
   TARGET_DLL: Cunny.dll
@@ -17,65 +17,47 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      # 1. 检出代码（包含子模块）
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           submodules: recursive
-          fetch-depth: 0
 
-      # 2. 设置MSBuild环境
       - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
-      # 3. 恢复NuGet包（适用于C#项目）
       - name: Restore NuGet packages
         run: |
-          msbuild ${{ env.SOLUTION_FILE_PATH }} \
-          /t:Restore \
-          /p:Configuration=${{ env.BUILD_CONFIGURATION}} \
-          /p:Platform=${{ env.PLATFORM}} \
-          /verbosity:minimal
+          msbuild "${{ env.SOLUTION_FILE_PATH }}" `
+          /t:Restore `
+          /p:Configuration=${{ env.BUILD_CONFIGURATION}} `
+          /p:Platform=${{ env.PLATFORM}}
 
-      # 4. 构建解决方案（带详细输出路径设置）
       - name: Build solution
         run: |
-          msbuild ${{ env.SOLUTION_FILE_PATH }} \
-          /p:Configuration=${{ env.BUILD_CONFIGURATION}} \
-          /p:Platform=${{ env.PLATFORM}} \
-          /p:OutputPath=./bin/ \
-          /p:GenerateProjectSpecificOutputFolder=true \
-          /verbosity:detailed
-          if ($LastExitCode -ne 0) { exit $LastExitCode }
+          msbuild "${{ env.SOLUTION_FILE_PATH }}" `
+          /p:Configuration=${{ env.BUILD_CONFIGURATION}} `
+          /p:Platform=${{ env.PLATFORM}} `
+          /p:OutDir=$(System.DefaultWorkingDirectory)\bin\ `
+          /p:GenerateProjectSpecificOutputFolder=false
 
-      # 5. 调试：显示构建输出结构
-      - name: Inspect build output
+      - name: Verify build output
         run: |
-          echo "=== 文件结构 ==="
-          tree /f ./bin || dir /s /b ./bin
-          echo "=== 目标DLL搜索 ==="
-          dir /s /b *${{ env.TARGET_DLL }} || echo "DLL not found!"
+          $dllPath = Get-ChildItem -Path .\bin -Recurse -Filter "${{ env.TARGET_DLL }}" | Select-Object -First 1
+          if (-not $dllPath) {
+              Write-Output "##[error]DLL not found! Directory contents:"
+              tree /f .\bin || dir .\bin /s
+              exit 1
+          }
+          Write-Output "Found DLL at: $($dllPath.FullName)"
+          Write-Output "##[group]DLL Info"
+          [System.Reflection.AssemblyName]::GetAssemblyName($dllPath.FullName)
+          Write-Output "##[endgroup]"
 
-      # 6. 上传制品（带智能路径查找）
-      - name: Upload build artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: release-artifact
+          name: release-binaries
           path: |
-            ./bin/**/${{ env.TARGET_DLL }}
-            ./bin/**/*.pdb
-            ./bin/**/*.lib
+            bin/**/${{ env.TARGET_DLL }}
+            bin/**/*.pdb
           if-no-files-found: error
-          retention-days: 5
-
-      # 7. 验证步骤（可选）
-      - name: Verify artifact
-        if: always()
-        run: |
-          $dllPath = (Get-ChildItem -Path ./bin -Recurse -Filter ${{ env.TARGET_DLL }} | Select-Object -First 1).FullName
-          if (-not $dllPath) {
-            Write-Error "Target DLL not found!"
-            exit 1
-          }
-          echo "Found DLL at: $dllPath"
-          [System.Reflection.AssemblyName]::GetAssemblyName($dllPath) | Select-Object FullName, Version
