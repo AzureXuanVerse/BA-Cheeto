@@ -1,4 +1,4 @@
-name: MSBuild
+name: MSBuild CI/CD Pipeline
 
 on:
   push:
@@ -17,22 +17,65 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - uses: actions/checkout@v4
+      # 1. 检出代码（包含子模块）
+      - name: Checkout repository
+        uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
 
-      - name: Add MSBuild to PATH
+      # 2. 设置MSBuild环境
+      - name: Setup MSBuild
         uses: microsoft/setup-msbuild@v2
 
+      # 3. 恢复NuGet包（适用于C#项目）
       - name: Restore NuGet packages
-        run: msbuild ${{ env.SOLUTION_FILE_PATH }} /t:Restore /p:Configuration=${{ env.BUILD_CONFIGURATION }} /p:Platform=${{ env.PLATFORM }}
+        run: |
+          msbuild ${{ env.SOLUTION_FILE_PATH }} \
+          /t:Restore \
+          /p:Configuration=${{ env.BUILD_CONFIGURATION}} \
+          /p:Platform=${{ env.PLATFORM}} \
+          /verbosity:minimal
 
-      - name: Build
-        run: msbuild ${{ env.SOLUTION_FILE_PATH }} /p:Configuration=${{ env.BUILD_CONFIGURATION }} /p:Platform=${{ env.PLATFORM }} /p:OutputPath=./bin/ /verbosity:minimal
+      # 4. 构建解决方案（带详细输出路径设置）
+      - name: Build solution
+        run: |
+          msbuild ${{ env.SOLUTION_FILE_PATH }} \
+          /p:Configuration=${{ env.BUILD_CONFIGURATION}} \
+          /p:Platform=${{ env.PLATFORM}} \
+          /p:OutputPath=./bin/ \
+          /p:GenerateProjectSpecificOutputFolder=true \
+          /verbosity:detailed
+          if ($LastExitCode -ne 0) { exit $LastExitCode }
 
-      - name: Upload Artifact
+      # 5. 调试：显示构建输出结构
+      - name: Inspect build output
+        run: |
+          echo "=== 文件结构 ==="
+          tree /f ./bin || dir /s /b ./bin
+          echo "=== 目标DLL搜索 ==="
+          dir /s /b *${{ env.TARGET_DLL }} || echo "DLL not found!"
+
+      # 6. 上传制品（带智能路径查找）
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
-          name: build-artifact
-          path: ./bin/${{ env.TARGET_DLL }}
+          name: release-artifact
+          path: |
+            ./bin/**/${{ env.TARGET_DLL }}
+            ./bin/**/*.pdb
+            ./bin/**/*.lib
           if-no-files-found: error
+          retention-days: 5
+
+      # 7. 验证步骤（可选）
+      - name: Verify artifact
+        if: always()
+        run: |
+          $dllPath = (Get-ChildItem -Path ./bin -Recurse -Filter ${{ env.TARGET_DLL }} | Select-Object -First 1).FullName
+          if (-not $dllPath) {
+            Write-Error "Target DLL not found!"
+            exit 1
+          }
+          echo "Found DLL at: $dllPath"
+          [System.Reflection.AssemblyName]::GetAssemblyName($dllPath) | Select-Object FullName, Version
